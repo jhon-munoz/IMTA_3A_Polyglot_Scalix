@@ -13,43 +13,54 @@ import scala.collection.mutable
 object Scalix extends App {
   implicit val formats: Formats = DefaultFormats
 
-  var mapActorId: mutable.Map[(String, String), Int] = mutable.Map.empty
+  var cacheActorId: mutable.Map[(String, String), Int] = mutable.Map.empty
+  var cacheActorMovies: mutable.Map[Int, Set[(Int, String)]] = mutable.Map.empty
+  var cacheMovieDirector: mutable.Map[Int, Option[(Int, String)]] = mutable.Map.empty
 
   def findActorId(name: String, surname: String): Option[Int] = {
     val urlActor = url + s"search/person?query=${name}%20${surname}&api_key=${apiKey}"
     //Check primary cache
-    var id = mapActorId.get(name, surname)
+    var id = cacheActorId.get(name, surname)
 
     if (id.isEmpty) {
       val json = parse(Source.fromURL(urlActor).mkString)
       val people = json.extract[People]
       id = Option.apply(people.results(0).id)
       //save in primary cache
-      mapActorId += ((name, surname) -> id.get)
+      cacheActorId += ((name, surname) -> id.get)
     }
     id
   }
 
   def findActorMovies(actorId: Int): Set[(Int, String)] = {
     val urlMovie = url + s"person/${actorId}/movie_credits?api_key=${apiKey}"
+    var response = cacheActorMovies.get(actorId)
 
-    val content = validateSecondaryCache(actorPath, actorId, urlMovie)
-    val movies = parse(content).extract[Movies]
+    if(response.isEmpty){
+      val content = validateSecondaryCache(actorPath, actorId, urlMovie)
+      val movies = parse(content).extract[Movies]
 
-    val response: Set[(Int, String)] = movies.cast.map {
-      case m: Movie => (m.id, m.title)
+      response = Option.apply(movies.cast.map {
+        case m: Movie => (m.id, m.title)
+      })
+      cacheActorMovies += (actorId -> response.get)
     }
-    response
+    response.get
   }
 
   def findMovieDirector(movieId: Int): Option[(Int, String)] = {
     val urlCredits = url + s"movie/${movieId}/credits?api_key=${apiKey}"
+    var respose = cacheMovieDirector.get(movieId)
+    
+    if(respose.isEmpty){
+      val content = validateSecondaryCache(moviePath, movieId, urlCredits)
+      val workers = parse(content).extract[Workers]
 
-    val content = validateSecondaryCache(moviePath, movieId, urlCredits)
-    val workers = parse(content).extract[Workers]
-
-    val director: List[Worker] = workers.crew.filter(_.job == "Director")
-    Option.apply(director(0).id, director(0).name)
+      val director: List[Worker] = workers.crew.filter(_.job == "Director")
+      respose = Option.apply(Option.apply(director(0).id, director(0).name))
+      cacheMovieDirector += (movieId -> respose.get)
+    }
+    respose.get
   }
 
   def collaboration(actor1: FullName, actor2: FullName): Set[(String, String)] = {
