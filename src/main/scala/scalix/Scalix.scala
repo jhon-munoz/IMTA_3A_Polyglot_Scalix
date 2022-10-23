@@ -2,30 +2,40 @@ package scalix
 
 import org.json4s.*
 import org.json4s.native.JsonMethods.*
-import scalix.ConfigParam.{apiKey, url}
-import scalix.MovieObjects.{FullName, Movies, Movie, People, Workers, Worker}
+import scalix.ConfigParam.{actorPath, apiKey, extension, moviePath, url}
+import scalix.MovieObjects.{FullName, Movie, Movies, People, Worker, Workers}
 
 import scala.io.Source
-import java.io.PrintWriter
+import java.io.{File, FileReader, PrintWriter}
+import java.nio.file.{Files, Paths}
+import scala.collection.mutable
 
 object Scalix extends App {
   implicit val formats: Formats = DefaultFormats
 
+  var mapActorId: mutable.Map[(String, String), Int] = mutable.Map.empty
+
   def findActorId(name: String, surname: String): Option[Int] = {
     val urlActor = url + s"search/person?query=${name}%20${surname}&api_key=${apiKey}"
-    val person = getJsonData(urlActor).extract[People]
-    Option.apply(person.results(0).id)
+    //Check primary cache
+    var id = mapActorId.get(name, surname)
+
+    if (id.isEmpty) {
+      val json = parse(Source.fromURL(urlActor).mkString)
+      val people = json.extract[People]
+      id = Option.apply(people.results(0).id)
+      //save in primary cache
+      mapActorId += ((name, surname) -> id.get)
+    }
+    id
   }
 
   def findActorMovies(actorId: Int): Set[(Int, String)] = {
     val urlMovie = url + s"person/${actorId}/movie_credits?api_key=${apiKey}"
-    val movies = getJsonData(urlMovie).extract[Movies]
 
-//    val out = new PrintWriter(s"src/main/scala/data/actor$actorId.json")
-//    out.print(movies)
-//    out.flush()
-////    val contents2 = Source.fromFile(s"src/main/scala/data/actor$actorId.json").mkString
-    
+    val content = validateSecondaryCache(actorPath, actorId, urlMovie)
+    val movies = parse(content).extract[Movies]
+
     val response: Set[(Int, String)] = movies.cast.map {
       case m: Movie => (m.id, m.title)
     }
@@ -34,7 +44,10 @@ object Scalix extends App {
 
   def findMovieDirector(movieId: Int): Option[(Int, String)] = {
     val urlCredits = url + s"movie/${movieId}/credits?api_key=${apiKey}"
-    val workers = getJsonData(urlCredits).extract[Workers]
+
+    val content = validateSecondaryCache(moviePath, movieId, urlCredits)
+    val workers = parse(content).extract[Workers]
+
     val director: List[Worker] = workers.crew.filter(_.job == "Director")
     Option.apply(director(0).id, director(0).name)
   }
@@ -49,11 +62,20 @@ object Scalix extends App {
     response
   }
 
-  private def getJsonData(url: String) = {
-    val sourceName = Source.fromURL(url)
-    val content = sourceName.mkString
-    val json = parse(content)
-    json
+  def validateSecondaryCache(path: String, id: Int, url: String) = {
+    val location = s"$path$id$extension"
+    var content = ""
+    val file: File = File(location)
+
+    if (file.exists()) {
+      content = String(Files.readAllBytes(Paths.get(file.getPath)))
+    } else {
+      val out = new PrintWriter(location)
+      content = Source.fromURL(url).mkString
+      out.print(content)
+      out.flush()
+    }
+    content
   }
 
 }
