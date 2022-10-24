@@ -9,6 +9,9 @@ import scala.io.Source
 import java.io.{File, FileReader, PrintWriter}
 import java.nio.file.{Files, Paths}
 import scala.collection.mutable
+import scala.collection.immutable.ListMap
+
+
 
 object Scalix extends App {
   implicit val formats: Formats = DefaultFormats
@@ -16,6 +19,8 @@ object Scalix extends App {
   var cacheActorId: mutable.Map[(String, String), Int] = mutable.Map.empty
   var cacheActorMovies: mutable.Map[Int, Set[(Int, String)]] = mutable.Map.empty
   var cacheMovieDirector: mutable.Map[Int, Option[(Int, String)]] = mutable.Map.empty
+  var cacheCollaboration1 = scala.collection.mutable.Map[(String, String),Int]()
+  var cacheCollaboration2 = scala.collection.mutable.Map[(String, String),Int]()
 
   def findActorId(name: String, surname: String): Option[Int] = {
     val urlActor = url + s"search/person?query=${name}%20${surname}&api_key=${apiKey}"
@@ -67,12 +72,22 @@ object Scalix extends App {
     val movie1 = findActorMovies(findActorId(actor1.name, actor1.surname).get)
     val movie2 = findActorMovies(findActorId(actor2.name, actor2.surname).get)
     val commonMovies: Set[(Int, String)] = movie1.filter((id, name) => movie2.contains(id, name))
+    //creation of cache of collaboration
+    val numberColl = commonMovies.size
+    cacheCollaboration1 += ((actor1.name,actor1.surname) -> numberColl)
+    cacheCollaboration2 += ((actor2.name,actor2.surname) -> numberColl)
     val response: Set[(String, String)] = commonMovies.map {
       (id, name) => (findMovieDirector(id).get._2, name)
     }
     response
   }
 
+  def numberCollaboration(): Unit ={
+    val coperacion1 = cacheCollaboration1.toList.sortBy(_._1).head
+    val coperacion2 = cacheCollaboration2.toList.sortBy(_._1).head
+    println("thes actors with more collaborations are "+ coperacion1._1 + " and "+ coperacion2._1)
+    println("With " + coperacion1._2 + " movies in commun")
+  }
   def validateSecondaryCache(path: String, id: Int, url: String) = {
     val location = s"$path$id$extension"
     var content = ""
@@ -88,5 +103,6 @@ object Scalix extends App {
     }
     content
   }
+
 
 }
